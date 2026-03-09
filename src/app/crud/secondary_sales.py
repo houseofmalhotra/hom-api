@@ -1,59 +1,59 @@
 from sqlalchemy.orm import Session
-from src.app.models.sales_secondary import SecondaryOrder, SecondaryOrderItems
-from src.app.models.partner import Distributor, Retailer
-from src.app.models.geography import Territory, Area, Region, State
+from src.app.models.pricing import TradeScheme, PartnerPriceBook
+from decimal import Decimal
 
 
-def create_secondary_order(db: Session, retailer_id: int, distributor_id: int, items_in: list, total_amount: float):
-    distributor = db.query(Distributor).filter(Distributor.id == distributor_id).first()
-    retailer = db.query(Retailer).filter(Retailer.id == retailer_id).first()
+class PricingService:
+    @staticmethod
+    def get_base_price_for_partner(db: Session, product_id: int, default_base_price: Decimal, partner_type: str = None,
+                                   partner_id: int = None) -> Decimal:
+        """
+        Fetches the custom price for a partner if it exists, otherwise returns the default base price.
+        """
+        if partner_type and partner_id:
+            custom_pricing = db.query(PartnerPriceBook).filter(
+                PartnerPriceBook.product_id == product_id,
+                PartnerPriceBook.partner_type == partner_type,
+                PartnerPriceBook.partner_id == partner_id,
+                PartnerPriceBook.is_active == True
+            ).first()
 
-    territory_id = retailer.territory_id if retailer else None
-    area_id = None
-    region_id = None
-    state_id = distributor.state_id if distributor else None
-    zone_id = None
+            if custom_pricing:
+                return custom_pricing.custom_selling_price
 
-    if territory_id:
-        territory = db.query(Territory).filter(Territory.id == territory_id).first()
-        if territory:
-            area_id = territory.area_id
-            area = db.query(Area).filter(Area.id == area_id).first()
-            if area:
-                region_id = area.region_id
-                region = db.query(Region).filter(Region.id == region_id).first()
-                if region:
-                    state_id = region.state_id
-                    state = db.query(State).filter(State.id == state_id).first()
-                    if state:
-                        zone_id = state.zone_id
-    elif state_id:
-        state = db.query(State).filter(State.id == state_id).first()
-        if state:
-            zone_id = state.zone_id
+        return default_base_price
 
-    db_order = SecondaryOrder(
-        retailer_id=retailer_id,
-        distributor_id=distributor_id,
-        total_amount=total_amount,
-        status="Pending",
+    @staticmethod
+    def calculate_item_pricing(db: Session, product_id: int, base_price: Decimal, dispatch_qty: int,
+                               partner_type: str = None, partner_id: int = None):
+        """
+        Evaluates active trade schemes for a product and applies partner-specific pricing.
+        Returns: (final_price_per_case, free_qty_awarded)
+        """
 
-        zone_id=zone_id,
-        state_id=state_id,
-        region_id=region_id,
-        area_id=area_id,
-        territory_id=territory_id
-    )
-    db.add(db_order)
-    db.flush()
-
-    for item in items_in:
-        db_item = SecondaryOrderItems(
-            secondary_order_id=db_order.id,
-            product_id=item['product_id'],
-            quantity_units=item['quantity'],
-            batch_number=item['batch_number']
+        actual_base_price = PricingService.get_base_price_for_partner(
+            db=db,
+            product_id=product_id,
+            default_base_price=base_price,
+            partner_type=partner_type,
+            partner_id=partner_id
         )
-        db.add(db_item)
 
-    return db_order
+        scheme = db.query(TradeScheme).filter(
+            TradeScheme.product_id == product_id,
+            TradeScheme.is_active == True
+        ).first()
+
+        final_price = actual_base_price
+        free_qty = 0
+
+        if scheme and dispatch_qty >= scheme.min_qty:
+            if scheme.discount_percent > 0:
+                discount_amount = actual_base_price * (Decimal(scheme.discount_percent) / 100)
+                final_price = actual_base_price - discount_amount
+
+            if scheme.free_qty > 0:
+                multiplier = dispatch_qty // scheme.min_qty
+                free_qty = multiplier * scheme.free_qty
+
+        return final_price, free_qty

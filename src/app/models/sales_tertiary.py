@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, BigInteger, Date, Boolean
 from src.app.core.database import Base
-
+from sqlalchemy import Column, Integer, String, DECIMAL, ForeignKey, BigInteger, Date, Boolean
 
 class EndConsumer(Base):
     __tablename__ = "end_consumer"
@@ -25,6 +25,7 @@ class TertiaryOrder(Base):
     product_id = Column(Integer, ForeignKey("product_master.id"))
     quantity = Column(Integer)
     status = Column(String(50))
+    selling_price = Column(DECIMAL(10, 2), nullable=False, default=0.00)
     zone_id = Column(Integer, index=True, nullable=True)
     region_id = Column(Integer, index=True, nullable=True)
     state_id = Column(Integer, index=True, nullable=True)

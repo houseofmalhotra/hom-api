@@ -27,6 +27,22 @@ class OrderService:
 
         from_entity_type, to_entity_type = OrderService.get_routing_entities(order.type)
 
+        # -------------------------------------------------------------------
+        # THE FIX: EXPLICITLY DETERMINE THE SELLER'S PRICE
+        # -------------------------------------------------------------------
+        seller_partner_type = None
+        seller_partner_id = None
+
+        if from_entity_type == "SuperStockist":
+            seller_partner_type = "super_stockist"
+            seller_partner_id = order.from_entity_id
+        elif from_entity_type == "Distributor":
+            seller_partner_type = "distributor"
+            seller_partner_id = order.from_entity_id
+        # If Factory is the seller (from_entity_type == "Factory"),
+        # both remain None. This forces PricingService to use the base 299 price.
+        # -------------------------------------------------------------------
+
         is_completely_fulfilled = True
         actual_items_dispatched = 0
 
@@ -53,8 +69,15 @@ class OrderService:
             actual_items_dispatched += 1
 
             product = db.query(ProductMaster).filter(ProductMaster.id == item.product_id).first()
+
+            # Request the price using the SELLER'S info mapped above
             final_price, free_qty = PricingService.calculate_item_pricing(
-                db, product.id, product.base_price, dispatch_qty
+                db=db,
+                product_id=product.id,
+                base_price=product.base_price,
+                dispatch_qty=dispatch_qty,
+                partner_type=seller_partner_type,
+                partner_id=seller_partner_id
             )
 
             if (dispatch_qty + free_qty) > available_stock:
@@ -158,7 +181,6 @@ class OrderService:
                     trans_type=f"RECEIPT_IN_{to_entity_type.upper()}"
                 )
 
-
         order.status = "Received"
         db.commit()
         return {"message": f"Stock successfully delivered to {to_entity_type}."}
@@ -191,8 +213,8 @@ class OrderService:
 
         if retailer.territory_id != current_user.assigned_territory_id:
             raise HTTPException(
-                status_code = 403,
-                detail = "This order belongs to a Retailer outside your assigned territory."
+                status_code=403,
+                detail="This order belongs to a Retailer outside your assigned territory."
             )
         try:
             StockService.update_stock(
@@ -214,4 +236,3 @@ class OrderService:
         except Exception as e:
             db.rollback()
             raise HTTPException(status_code=400, detail=str(e))
-
