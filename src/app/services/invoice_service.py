@@ -1,5 +1,6 @@
 from fpdf import FPDF
 from datetime import datetime
+import os
 
 class PanamaLetterhead(FPDF):
     def header(self):
@@ -44,8 +45,11 @@ class PanamaLetterhead(FPDF):
         self.rect(190, 160, 3, 18, 'F')
         self.rect(190, 230, 3, 18, 'F')
 
-        # --- 4. Insert Logo Image ---
-        self.image(r"C:\Users\manan\PycharmProjects\HoM Backend\src\app\assets\logo.png", x=35, y=22, w=140)
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        logo_path = os.path.join(BASE_DIR, "assets", "logo.png")
+
+        self.image(logo_path, x=35, y=22, w=140)
 
         # ✅ FIX 1: Pushed the Y-coordinate down from 55 to 75 to clear the logo image
         self.set_y(75)
