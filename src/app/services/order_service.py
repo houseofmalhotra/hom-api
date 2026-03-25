@@ -1,7 +1,5 @@
-from cryptography.hazmat.primitives.twofactor.hotp import HOTPHashTypes
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
-from datetime import date
 from src.app.models.sales_primary import PrimaryOrder, PrimaryInvoice
 from src.app.models.product import ProductMaster
 from src.app.services.stock_service import StockService
@@ -27,9 +25,6 @@ class OrderService:
 
         from_entity_type, to_entity_type = OrderService.get_routing_entities(order.type)
 
-        # -------------------------------------------------------------------
-        # THE FIX: EXPLICITLY DETERMINE THE SELLER'S PRICE
-        # -------------------------------------------------------------------
         seller_partner_type = None
         seller_partner_id = None
 
@@ -39,9 +34,6 @@ class OrderService:
         elif from_entity_type == "Distributor":
             seller_partner_type = "distributor"
             seller_partner_id = order.from_entity_id
-        # If Factory is the seller (from_entity_type == "Factory"),
-        # both remain None. This forces PricingService to use the base 299 price.
-        # -------------------------------------------------------------------
 
         is_completely_fulfilled = True
         actual_items_dispatched = 0
@@ -70,7 +62,6 @@ class OrderService:
 
             product = db.query(ProductMaster).filter(ProductMaster.id == item.product_id).first()
 
-            # Request the price using the SELLER'S info mapped above
             final_price, free_qty = PricingService.calculate_item_pricing(
                 db=db,
                 product_id=product.id,

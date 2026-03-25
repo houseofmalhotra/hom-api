@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from src.app.core.database import get_db
-from src.app.core.security import get_current_user, check_permissions
+from src.app.core.security import check_permissions
 from src.app.models.user import User
 from src.app.models.partner import SuperStockist, Distributor, Retailer
 from src.app.services.permission_service import PermissionService
@@ -191,7 +191,7 @@ def adjust_stock(
         current_user: User = Depends(check_permissions("manage_inventory"))
 ):
     formatted_entity_type = entity_type.capitalize()
-    if formatted_entity_type == "Superstockist":
+    if formatted_entity_type == "SuperStockist":
         formatted_entity_type = "SuperStockist"
 
     role_name = current_user.role.name if current_user.role else ""

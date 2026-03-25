@@ -10,11 +10,13 @@ from src.app.v1 import (
     tertiary_sales,
     geography,
     product,
+    invoice
 )
 from src.app.core.config import settings
 from src.app.v1 import partner
 from src.app.v1 import finance
 from src.app.v1 import pricing
+from src.app.v1 import invoice
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -71,7 +73,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["01. Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["02. User Management"])
 app.include_router(geography.router, prefix="/api/v1/geo", tags=["03. Geography"])
@@ -82,9 +83,8 @@ app.include_router(secondary_sales.router, prefix="/api/v1/secondary-sales",tags
 app.include_router(tertiary_sales.router, prefix="/api/v1/tertiary-sales",tags=["08. Tertiary Sales (Retailer -> Barber)"])
 app.include_router(partner.router, prefix="/api/v1/partners", tags=["9. Partners"])
 app.include_router(finance.router, prefix="/api/v1/finance", tags=["10. Finance & A/R"])
-
 app.include_router(pricing.router, prefix="/api/v1/pricing", tags=["11. Pricing"])
-
+app.include_router(invoice.router, prefix="/api/v1/invoices", tags=["12. Invoicing"])
 
 @app.get("/", tags=["Health Check"])
 def root():
