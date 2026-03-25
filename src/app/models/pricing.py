@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, DECIMAL, Boolean, ForeignKey, Date
 from src.app.core.database import Base
+import enum
 
 
 class TradeScheme(Base):
@@ -17,4 +18,27 @@ class TradeScheme(Base):
 
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+
+class PartnerType(str, enum.Enum):
+    SUPER_STOCKIST = "super_stockist"
+    DISTRIBUTOR = "distributor"
+    RETAILER = "retailer"
+
+
+class PartnerPriceBook(Base):
+    __tablename__ = "partner_price_book"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+
+    partner_type = Column(String(50), nullable=False)
+    partner_id = Column(Integer, index=True, nullable=False)
+
+    # Link to the product
+    product_id = Column(Integer, ForeignKey("product_master.id"), nullable=False)
+
+    custom_selling_price = Column(DECIMAL(10, 2), nullable=False)
+
     is_active = Column(Boolean, default=True)

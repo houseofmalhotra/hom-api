@@ -5,6 +5,8 @@ from src.app.schemas.partner import EndConsumerCreate, EndConsumerUpdate
 from datetime import date
 from src.app.models.partner import Retailer
 from src.app.models.geography import Territory, Area, Region, State
+from src.app.models.product import ProductMaster
+from src.app.services.pricing_service import PricingService
 
 
 def create_tertiary_sale(db: Session, sale_in: TertiaryOrderCreate):
@@ -32,6 +34,17 @@ def create_tertiary_sale(db: Session, sale_in: TertiaryOrderCreate):
                     if state:
                         zone_id = state.zone_id
 
+    # NEW: Fetch product base price and calculate retailer's custom selling price
+    product = db.query(ProductMaster).filter(ProductMaster.id == sale_in.product_id).first()
+    final_price, _ = PricingService.calculate_item_pricing(
+        db=db,
+        product_id=product.id,
+        base_price=product.base_price,
+        dispatch_qty=sale_in.quantity,
+        partner_type="retailer",
+        partner_id=sale_in.fulfilled_by_retailer_id
+    )
+
     db_order = TertiaryOrder(
         end_consumer_id=sale_in.end_consumer_id,
         fulfilled_by_retailer_id=sale_in.fulfilled_by_retailer_id,
@@ -40,6 +53,7 @@ def create_tertiary_sale(db: Session, sale_in: TertiaryOrderCreate):
         batch_number=sale_in.batch_number,
         assigned_so_id=sale_in.assigned_so_id,
         request_date=date.today(),
+        selling_price=final_price,  # Assigned here
         status="Pending",
 
         zone_id=zone_id,
@@ -58,8 +72,10 @@ def create_tertiary_sale(db: Session, sale_in: TertiaryOrderCreate):
 def get_tertiary_order_by_id(db: Session, order_id: int):
     return db.query(TertiaryOrder).filter(TertiaryOrder.id == order_id).first()
 
+
 def get_tertiary_orders_by_so(db: Session, so_id: int):
     return db.query(TertiaryOrder).filter(TertiaryOrder.assigned_so_id == so_id).all()
+
 
 def update_tertiary_status(db: Session, order_id: int, status: str):
     db_order = db.query(TertiaryOrder).filter(TertiaryOrder.id == order_id).first()
@@ -86,8 +102,10 @@ def create_end_consumer(db: Session, consumer_in: EndConsumerCreate):
     db.refresh(db_consumer)
     return db_consumer
 
+
 def get_end_consumers(db: Session):
     return db.query(EndConsumer).filter(EndConsumer.is_active == True).all()
+
 
 def update_end_consumer(db: Session, consumer_id: int, consumer_in: EndConsumerUpdate):
     db_consumer = db.query(EndConsumer).filter(EndConsumer.id == consumer_id).first()
@@ -98,6 +116,7 @@ def update_end_consumer(db: Session, consumer_id: int, consumer_in: EndConsumerU
         db.commit()
         db.refresh(db_consumer)
     return db_consumer
+
 
 def delete_end_consumer(db: Session, consumer_id: int):
     db_consumer = db.query(EndConsumer).filter(EndConsumer.id == consumer_id).first()

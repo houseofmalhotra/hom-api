@@ -2,7 +2,6 @@ from sqlalchemy.orm import Session
 from src.app.models.geography import Zone, State, Region, Area, Territory
 from src.app.schemas.geography import TerritoryCreate, ZoneCreate, StateCreate, RegionCreate, AreaCreate
 
-
 def get_zones(db: Session):
     return db.query(Zone).all()
 
