@@ -75,6 +75,7 @@ class InTransitInventory(Base):
     current_stock_qty = Column(Integer, default=0)
 
 
+# In src/app/models/inventory.py
 class DailyProductionLog(Base):
     __tablename__ = "daily_production_log"
     __table_args__ = {'extend_existing': True}
@@ -85,3 +86,5 @@ class DailyProductionLog(Base):
     batch_number = Column(String(50), nullable=False)
     quantity_produced = Column(Integer, nullable=False)
     production_date = Column(Date, nullable=False)
+
+    source_run_id = Column(BigInteger, ForeignKey("production_run.id"), nullable=True)
