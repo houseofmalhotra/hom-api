@@ -7,6 +7,7 @@ from src.app.models.production_core import WIPInventory
 from src.app.models.production_core import FactoryLedger
 from sqlalchemy import desc
 from src.app.models.product import ProductMaster
+from src.app.services.production_service import reverse_production_run
 
 router = APIRouter()
 
@@ -61,8 +62,8 @@ def get_factory_ledger(factory_id: int, db: Session = Depends(get_db)):
         {
             "id": ledger.id,
             "date": ledger.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "product_name": product.name,  # Pulling the real name!
-            "sku": product.sku,  # Pulling the real SKU!
+            "product_name": product.name,
+            "sku": product.sku_code,  # 🚨 FIXED: Changed from .sku to .sku_code
             "batch_number": ledger.batch_number,
             "stage_id": ledger.stage_id,
             "transaction_type": ledger.transaction_type,
@@ -72,3 +73,11 @@ def get_factory_ledger(factory_id: int, db: Session = Depends(get_db)):
         }
         for ledger, product in records
     ]
+
+@router.post("/reverse-run/{run_id}")
+def api_reverse_production_run(run_id: int, operator_id: int = 1, db: Session = Depends(get_db)):
+    """
+    Cancels a production run.
+    Restores the consumed WIP, removes the produced WIP/FG, and logs the reversal in the ledger.
+    """
+    return reverse_production_run(db=db, run_id=run_id, operator_id=operator_id)

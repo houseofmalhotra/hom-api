@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, DECIMAL, ForeignKey, BigInteger, DateTime, Date, func
 from src.app.core.database import Base
+from sqlalchemy import Numeric
 
 class StockLedger(Base):
     """The History of Truth - Every movement is recorded here"""
@@ -88,3 +89,16 @@ class DailyProductionLog(Base):
     production_date = Column(Date, nullable=False)
 
     source_run_id = Column(BigInteger, ForeignKey("production_run.id"), nullable=True)
+
+
+class ScrapInventory(Base):
+    """Tracks accumulated scrap/waste material on the shop floor"""
+    __tablename__ = "scrap_inventory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factory_master.id"), nullable=False)
+
+    product_id = Column(Integer, ForeignKey("product_master.id"), nullable=False)
+
+    current_qty = Column(Numeric(12, 3), default=0)
+    uom = Column(String(20), nullable=False)

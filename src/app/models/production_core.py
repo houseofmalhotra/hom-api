@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Numeric, ForeignKey, BigInteger,
 from sqlalchemy.orm import relationship
 from src.app.core.database import Base
 from sqlalchemy import Boolean
+from sqlalchemy import Boolean # Ensure this is imported
 
 
 class ProductionStage(Base):
@@ -54,6 +55,8 @@ class ProductionRun(Base):
     scrap_qty = Column(Numeric(12, 3), default=0)
 
     created_at = Column(DateTime, server_default=func.now())
+    scrap_qty = Column(Numeric(12, 3), default=0)
+    is_reversed = Column(Boolean, default=False, nullable=False)
 
 
 # ADD THIS NEW MODEL
@@ -94,3 +97,4 @@ class ProductRouting(Base):
     stage_id = Column(Integer, ForeignKey("production_stage.id"), nullable=False)
     step_number = Column(Integer, nullable=False)
     is_final_step = Column(Boolean, default=False)
+    output_product_id = Column(Integer, ForeignKey("product_master.id"), nullable=True)
