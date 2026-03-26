@@ -10,6 +10,12 @@ from src.app.schemas.inventory import ProductionLogCreate, StockLedgerRead, Stoc
 from src.app.models.inventory import DailyProductionLog, FactoryInventory, StockLedger, SSInventory, \
     DistributorInventory, RetailerInventory, FactoryMaster
 from src.app.services.stock_service import StockService
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from src.app.core.database import get_db
+from src.app.models.inventory import StockLedger
+from src.app.models.product import ProductMaster
 
 router = APIRouter()
 
@@ -255,5 +261,40 @@ def get_all_factories(
     role_name = current_user.role.name if current_user.role else ""
     if role_name in ["SuperStockist", "Distributor", "Retailer"]:
         return []
-
     return db.query(FactoryMaster).all()
+
+
+@router.get("/factory-ledger/{factory_id}")
+def get_factory_stock_ledger(factory_id: int, db: Session = Depends(get_db), limit: int = 200):
+    """
+    Fetches the stock movement ledger specifically for a single factory.
+    Filters out downstream Transit and Distributor movements.
+    """
+    results = (
+        db.query(StockLedger, ProductMaster.name, ProductMaster.sku_code)
+        .join(ProductMaster, StockLedger.product_id == ProductMaster.id)
+        .filter(
+            StockLedger.entity_id == factory_id,
+            StockLedger.entity_type.in_(["FACTORY", "FACTORY_WIP"]) # Only Factory data
+        )
+        .order_by(desc(StockLedger.created_at))
+        .limit(limit)
+        .all()
+    )
+
+    formatted_ledger = []
+    for ledger, prd_name, prd_sku in results:
+        formatted_ledger.append({
+            "id": ledger.id,
+            "date": ledger.created_at.strftime("%Y-%m-%d %H:%M:%S") if ledger.created_at else "N/A",
+            "entity_type": ledger.entity_type,
+            "product_name": prd_name,
+            "sku": prd_sku,
+            "batch_number": ledger.batch_number,
+            "transaction_type": ledger.transaction_type,
+            "reference_document": ledger.reference_document,
+            "quantity_change": ledger.quantity_change,
+            "closing_balance": ledger.closing_balance
+        })
+
+    return formatted_ledger

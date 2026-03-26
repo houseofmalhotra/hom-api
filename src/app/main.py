@@ -12,11 +12,13 @@ from src.app.v1 import (
     product,
     invoice
 )
+from src.app.models import production_core
 from src.app.core.config import settings
 from src.app.v1 import partner
 from src.app.v1 import finance
 from src.app.v1 import pricing
 from src.app.v1 import invoice
+from src.app.v1 import production
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -85,6 +87,8 @@ app.include_router(partner.router, prefix="/api/v1/partners", tags=["9. Partners
 app.include_router(finance.router, prefix="/api/v1/finance", tags=["10. Finance & A/R"])
 app.include_router(pricing.router, prefix="/api/v1/pricing", tags=["11. Pricing"])
 app.include_router(invoice.router, prefix="/api/v1/invoices", tags=["12. Invoicing"])
+app.include_router(production.router, prefix="/api/v1/production", tags=["13. Upstream Manufacturing"])
+
 
 @app.get("/", tags=["Health Check"])
 def root():

@@ -91,7 +91,6 @@ def place_primary_order(
         db: Session = Depends(get_db),
         current_user: User = Depends(check_permissions("create_primary_order"))
 ):
-    # Spoofing Protection
     role_name = current_user.role.name if current_user.role else ""
     if role_name == "SuperStockist":
         ss = db.query(SuperStockist).filter(SuperStockist.user_id == current_user.id).first()
