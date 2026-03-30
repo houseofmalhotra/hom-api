@@ -39,7 +39,6 @@ def custom_openapi():
         routes=app.routes,
     )
 
-
     openapi_schema["components"]["securitySchemes"] = {
         "OAuth2PasswordBearer": {
             "type": "oauth2",

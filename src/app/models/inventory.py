@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, DECIMAL, ForeignKey, BigInteger, DateTime, Date, func
 from src.app.core.database import Base
+from sqlalchemy import Numeric
 
 class StockLedger(Base):
     """The History of Truth - Every movement is recorded here"""
@@ -12,9 +13,8 @@ class StockLedger(Base):
     batch_number = Column(String(50), nullable=False)
     transaction_type = Column(String(255))
     reference_document = Column(String(255))
-    quantity_change = Column(Integer)
-    closing_balance = Column(Integer)
-
+    quantity_change = Column(Numeric(12, 3), nullable=False)
+    closing_balance = Column(Numeric(12, 3), nullable=False)
 
 class FactoryInventory(Base):
     __tablename__ = "factory_inventory"
@@ -22,8 +22,7 @@ class FactoryInventory(Base):
     factory_id = Column(Integer, ForeignKey("factory_master.id"))
     product_id = Column(Integer, ForeignKey("product_master.id"))
     batch_number = Column(String(50), nullable=False)
-    current_stock_qty = Column(Integer, default=0)
-
+    current_stock_qty = Column(Numeric(12, 3), default=0)
 
 class SSInventory(Base):
     __tablename__ = "ss_inventory"
@@ -88,3 +87,16 @@ class DailyProductionLog(Base):
     production_date = Column(Date, nullable=False)
 
     source_run_id = Column(BigInteger, ForeignKey("production_run.id"), nullable=True)
+
+
+class ScrapInventory(Base):
+    """Tracks accumulated scrap/waste material on the shop floor"""
+    __tablename__ = "scrap_inventory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    factory_id = Column(Integer, ForeignKey("factory_master.id"), nullable=False)
+
+    product_id = Column(Integer, ForeignKey("product_master.id"), nullable=False)
+
+    current_qty = Column(Numeric(12, 3), default=0) # MUST BE NUMERIC
+    uom = Column(String(20), nullable=False)

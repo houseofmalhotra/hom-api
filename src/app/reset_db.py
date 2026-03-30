@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from src.app.core.database import engine, Base, SessionLocal
 from src.app.core.security import get_password_hash
 
@@ -15,8 +16,10 @@ import src.app.models.sales_tertiary
 import src.app.models.finance
 import src.app.models.logistics
 import src.app.models.pricing
+import src.app.models.production_core
 
 from src.app.models.user import User, Role, Permission
+from src.app.models.production_core import ProductionStage
 
 MASTER_PERMISSIONS = [
     {"name": "view_dashboard", "description": "Can access the main dashboard"},
@@ -59,6 +62,26 @@ MASTER_PERMISSIONS = [
     {"name": "manage_roles", "description": "Create roles and attach permissions"}
 ]
 
+# Master List of Razor Blade Factory Stages
+FACTORY_STAGES = [
+    {"seq": 1, "name": "Punching", "in_uom": "KG", "out_uom": "KG"},
+    {"seq": 2, "name": "Hardening / Furnace", "in_uom": "KG", "out_uom": "KG"},
+    {"seq": 3, "name": "Coil Joining", "in_uom": "KG", "out_uom": "KG"},
+    {"seq": 4, "name": "Passivation", "in_uom": "KG", "out_uom": "KG"},
+    {"seq": 5, "name": "Printing", "in_uom": "KG", "out_uom": "KG"},
+    {"seq": 6, "name": "Grinder / Stropper", "in_uom": "KG", "out_uom": "NOS"},
+    {"seq": 7, "name": "Heat Cleaning", "in_uom": "NOS", "out_uom": "NOS"},
+    {"seq": 8, "name": "Sputtering", "in_uom": "NOS", "out_uom": "NOS"},
+    {"seq": 9, "name": "Spray Unit", "in_uom": "NOS", "out_uom": "NOS"},
+    {"seq": 10, "name": "Sintering", "in_uom": "NOS", "out_uom": "NOS"},
+    {"seq": 11, "name": "Oil Bath", "in_uom": "NOS", "out_uom": "NOS"},
+    {"seq": 12, "name": "Wrapping", "in_uom": "NOS", "out_uom": "TUCKS"},
+    {"seq": 13, "name": "Pocketing", "in_uom": "TUCKS", "out_uom": "TUCKS"},
+    {"seq": 14, "name": "Cellophaning", "in_uom": "TUCKS", "out_uom": "TUCKS"},
+    {"seq": 15, "name": "Shrink wrapping / packing", "in_uom": "TUCKS", "out_uom": "BOXES"},
+    {"seq": 16, "name": "Store / Final FG Intake", "in_uom": "BOXES", "out_uom": "BOXES"}
+]
+
 
 def seed_permissions(db: Session):
     print("🔑 Seeding master permissions...")
@@ -69,9 +92,37 @@ def seed_permissions(db: Session):
     print(f"✅ Successfully seeded {len(MASTER_PERMISSIONS)} permissions.")
 
 
+def seed_production_stages(db: Session):
+    print("🏭 Seeding factory production stages...")
+    for stage in FACTORY_STAGES:
+        new_stage = ProductionStage(
+            sequence_number=stage["seq"],
+            name=stage["name"],
+            input_uom=stage["in_uom"],
+            output_uom=stage["out_uom"]
+        )
+        db.add(new_stage)
+    db.commit()
+    print(f"✅ Successfully seeded {len(FACTORY_STAGES)} factory stages.")
+
+
 def reset_and_seed_database():
     print("🧨 WARNING: Dropping all database tables...")
-    Base.metadata.drop_all(bind=engine)
+    try:
+        # Attempt standard drop
+        Base.metadata.drop_all(bind=engine)
+    except Exception as e:
+        # If it fails due to PostgreSQL dependencies, force a CASCADE drop
+        if engine.dialect.name == 'postgresql':
+            print("⚠️ Dependency error detected. Forcing CASCADE drop on PostgreSQL...")
+            with engine.connect() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE;"))
+                conn.execute(text("CREATE SCHEMA public;"))
+                conn.execute(text("GRANT ALL ON SCHEMA public TO public;"))
+                conn.commit()
+            print("✅ Cascade drop successful.")
+        else:
+            raise e
 
     print("🏗️ Recreating clean tables from latest schema...")
     Base.metadata.create_all(bind=engine)
@@ -81,11 +132,14 @@ def reset_and_seed_database():
         # Step 1: Seed all permissions
         seed_permissions(db)
 
-        # Step 2: Grab all newly created permissions from the DB
+        # Step 2: Seed the Factory Floor Stages
+        seed_production_stages(db)
+
+        # Step 3: Grab all newly created permissions from the DB
         all_permissions_in_db = db.query(Permission).all()
 
         print("🌱 Seeding default Admin role and user...")
-        # Step 3: Create the Admin role and attach ALL permissions to it instantly
+        # Step 4: Create the Admin role and attach ALL permissions to it instantly
         admin_role = Role(
             name="Admin",
             description="Super Administrator with full access",
@@ -94,7 +148,7 @@ def reset_and_seed_database():
         db.add(admin_role)
         db.flush()
 
-        # Step 4: Create the default Admin user
+        # Step 5: Create the default Admin user
         admin_user = User(
             username="admin",
             password_hash=get_password_hash("admin123"),

@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Numeric, ForeignKey, BigInteger,
 from sqlalchemy.orm import relationship
 from src.app.core.database import Base
 from sqlalchemy import Boolean
+from sqlalchemy import Boolean # Ensure this is imported
 
 
 class ProductionStage(Base):
@@ -54,9 +55,10 @@ class ProductionRun(Base):
     scrap_qty = Column(Numeric(12, 3), default=0)
 
     created_at = Column(DateTime, server_default=func.now())
+    scrap_qty = Column(Numeric(12, 3), default=0)
+    is_reversed = Column(Boolean, default=False, nullable=False)
 
 
-# ADD THIS NEW MODEL
 class FactoryLedger(Base):
     """Dedicated ledger for internal factory/WIP movements"""
     __tablename__ = "factory_ledger"
@@ -66,9 +68,9 @@ class FactoryLedger(Base):
     product_id = Column(Integer, nullable=False)
     batch_number = Column(String(50), nullable=False, index=True)
 
-    stage_id = Column(Integer, nullable=True)  # Which stage caused this movement
-    transaction_type = Column(String(50), nullable=False)  # e.g., "WIP_CONSUMED", "WIP_PRODUCED"
-    reference_document = Column(String(100), nullable=True)  # e.g., "RUN-1234"
+    stage_id = Column(Integer, nullable=True)
+    transaction_type = Column(String(50), nullable=False)
+    reference_document = Column(String(100), nullable=True)
 
     quantity_change = Column(Numeric(12, 3), nullable=False)
     closing_balance = Column(Numeric(12, 3), nullable=False)
@@ -94,3 +96,4 @@ class ProductRouting(Base):
     stage_id = Column(Integer, ForeignKey("production_stage.id"), nullable=False)
     step_number = Column(Integer, nullable=False)
     is_final_step = Column(Boolean, default=False)
+    output_product_id = Column(Integer, ForeignKey("product_master.id"), nullable=True)
