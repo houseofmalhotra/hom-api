@@ -13,9 +13,8 @@ class StockLedger(Base):
     batch_number = Column(String(50), nullable=False)
     transaction_type = Column(String(255))
     reference_document = Column(String(255))
-    quantity_change = Column(Integer)
-    closing_balance = Column(Integer)
-
+    quantity_change = Column(Numeric(12, 3), nullable=False)
+    closing_balance = Column(Numeric(12, 3), nullable=False)
 
 class FactoryInventory(Base):
     __tablename__ = "factory_inventory"
@@ -23,8 +22,7 @@ class FactoryInventory(Base):
     factory_id = Column(Integer, ForeignKey("factory_master.id"))
     product_id = Column(Integer, ForeignKey("product_master.id"))
     batch_number = Column(String(50), nullable=False)
-    current_stock_qty = Column(Integer, default=0)
-
+    current_stock_qty = Column(Numeric(12, 3), default=0)
 
 class SSInventory(Base):
     __tablename__ = "ss_inventory"
@@ -100,5 +98,5 @@ class ScrapInventory(Base):
 
     product_id = Column(Integer, ForeignKey("product_master.id"), nullable=False)
 
-    current_qty = Column(Numeric(12, 3), default=0)
+    current_qty = Column(Numeric(12, 3), default=0) # MUST BE NUMERIC
     uom = Column(String(20), nullable=False)

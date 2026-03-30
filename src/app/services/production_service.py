@@ -1,27 +1,15 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from fastapi import HTTPException, status
-from datetime import date
-import uuid
-from src.app.models.inventory import ScrapInventory
-from src.app.models.production_core import ProductionStage, WIPInventory, ProductionRun, RunConsumption, FactoryLedger, ProductRouting
-from src.app.models.inventory import StockLedger, DailyProductionLog, FactoryInventory
-from src.app.schemas.production import ProductionRunCreate, RawMaterialIntake
-
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from datetime import date
 import uuid
 
-from src.app.models.production_core import WIPInventory, ProductionRun, RunConsumption, FactoryLedger
-from src.app.models.inventory import FactoryInventory, DailyProductionLog, ScrapInventory, StockLedger
-# Import Core Production Models
+# Core Production Models
 from src.app.models.production_core import (
     ProductionStage, WIPInventory, ProductionRun,
     RunConsumption, FactoryLedger, ProductRouting
 )
-# Import Inventory Models
+# Inventory Models
 from src.app.models.inventory import (
     StockLedger, DailyProductionLog, FactoryInventory, ScrapInventory
 )
@@ -31,7 +19,10 @@ from src.app.schemas.production import ProductionRunCreate, RawMaterialIntake
 def execute_production_run(db: Session, run_data: ProductionRunCreate):
     try:
         # 1. IDEMPOTENCY CHECK: Block duplicate runs from double-clicks/latency
-        existing_run = db.query(ProductionRun).filter(ProductionRun.idempotency_key == run_data.idempotency_key).first()
+        existing_run = db.query(ProductionRun).filter(
+            ProductionRun.idempotency_key == run_data.idempotency_key
+        ).first()
+
         if existing_run:
             return {"status": "success", "run_id": existing_run.id, "message": "Run already processed."}
 
@@ -41,14 +32,17 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             raise HTTPException(status_code=404, detail="Production stage not found.")
 
         total_input_qty = 0
-
-        # --- TRACKING FOR FRANKENSTEIN BATCHES ---
         consumed_batches = set()
         consumed_vendor_lots = set()
 
+        # 🚨 FIX: Track ledger objects locally to avoid race conditions
+        pending_ledgers = []
+
         # 3. Process Consumptions
         for consumed in run_data.consumed_wips:
-            wip_record = db.query(WIPInventory).filter(WIPInventory.id == consumed.wip_id).with_for_update().first()
+            wip_record = db.query(WIPInventory).filter(
+                WIPInventory.id == consumed.wip_id
+            ).with_for_update().first()
 
             if not wip_record:
                 raise HTTPException(status_code=404, detail=f"WIP Batch {consumed.wip_id} not found.")
@@ -74,53 +68,51 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
                 batch_number=wip_record.batch_number,
                 stage_id=current_stage.id,
                 transaction_type="WIP_CONSUMED",
-                reference_document="RUN-PENDING",
+                reference_document="PENDING",  # Placeholder, updated safely below
                 quantity_change=-consumed.qty_to_consume,
                 closing_balance=wip_record.current_qty
             )
             db.add(ledger_consume)
+            pending_ledgers.append(ledger_consume)
 
         # =================================================================
-        # 🚨 THE FRANKENSTEIN BATCH LOGIC 🚨
+        # 4. THE FRANKENSTEIN BATCH LOGIC
         # =================================================================
         if len(consumed_batches) == 1:
-            # Pure Batch: Only 1 unique batch was consumed. Inherit it directly!
-            unified_batch_number = consumed_batches.pop()
-            vendor_lot_to_carry_forward = consumed_vendor_lots.pop() if consumed_vendor_lots else None
+            unified_batch_number = next(iter(consumed_batches))
+            vendor_lot_to_carry_forward = next(iter(consumed_vendor_lots)) if consumed_vendor_lots else None
 
         elif len(consumed_batches) > 1:
-            # Mixed Batch: Multiple different batches were blended. Generate a MIX ID.
             unified_batch_number = f"MIX-S{current_stage.sequence_number}-{uuid.uuid4().hex[:6].upper()}"
             vendor_lot_to_carry_forward = "MIXED"
 
         else:
-            # Fallback (Should theoretically never hit)
             unified_batch_number = f"BATCH-{uuid.uuid4().hex[:8].upper()}"
             vendor_lot_to_carry_forward = None
-        # =================================================================
 
-        # 4. Create the Production Run Ledger Entry
+        # =================================================================
+        # 5. Create the Production Run & Safely Update Ledgers
+        # =================================================================
         new_run = ProductionRun(
             idempotency_key=run_data.idempotency_key,
             stage_id=current_stage.id,
             factory_id=run_data.factory_id,
             operator_id=run_data.operator_id,
-            output_batch_number=unified_batch_number,  # Unified or MIX ID
+            output_batch_number=unified_batch_number,
             product_id=run_data.product_id,
             input_qty=total_input_qty,
             good_output_qty=run_data.good_output_qty,
             scrap_qty=run_data.scrap_qty
         )
         db.add(new_run)
-        db.flush()
+        db.flush()  # Generates new_run.id
 
-        # Update reference document for ledger entries now that we have run.id
-        db.query(FactoryLedger).filter(
-            FactoryLedger.reference_document == "RUN-PENDING",
-            FactoryLedger.factory_id == run_data.factory_id
-        ).update({"reference_document": f"RUN-{new_run.id}"})
+        # 🚨 FIX: Update the exact ledger objects tied to this transaction
+        run_reference = f"RUN-{new_run.id}"
+        for ledger in pending_ledgers:
+            ledger.reference_document = run_reference
 
-        # 5. Mapping Records
+        # Create Run Mappings
         for consumed in run_data.consumed_wips:
             run_mapping = RunConsumption(
                 run_id=new_run.id,
@@ -129,32 +121,43 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             )
             db.add(run_mapping)
 
+        # =================================================================
         # 6. PRODUCT ROUTING & LIGHTWEIGHT MUTATION
+        # =================================================================
         current_route = db.query(ProductRouting).filter(
             ProductRouting.product_id == run_data.product_id,
             ProductRouting.stage_id == current_stage.id
         ).first()
 
-        if not current_route:
-            raise HTTPException(status_code=400, detail="This stage is not valid for this product's routing.")
+        next_stage = None
+        is_final_step = False
 
-        # --- MUTATION CHECK ---
-        # If the routing dictates a new product comes out, we use it. Otherwise, keep the input ID.
-        target_output_product_id = current_route.output_product_id or run_data.product_id
+        if current_route:
+            target_output_product_id = current_route.output_product_id or run_data.product_id
+            is_final_step = current_route.is_final_step
 
-        # Find the next step number
-        next_route = db.query(ProductRouting).filter(
-            ProductRouting.product_id == run_data.product_id,
-            ProductRouting.step_number > current_route.step_number
-        ).order_by(ProductRouting.step_number.asc()).first()
+            next_route = db.query(ProductRouting).filter(
+                ProductRouting.product_id == run_data.product_id,
+                ProductRouting.step_number > current_route.step_number
+            ).order_by(ProductRouting.step_number.asc()).first()
 
-        if next_route and not current_route.is_final_step:
-            # NOT THE FINAL STAGE: Queue it up for the next machine
-            next_stage = db.query(ProductionStage).filter(ProductionStage.id == next_route.stage_id).first()
+            if next_route and not is_final_step:
+                next_stage = db.query(ProductionStage).filter(ProductionStage.id == next_route.stage_id).first()
+        else:
+            target_output_product_id = run_data.product_id
+            next_stage = db.query(ProductionStage).filter(
+                ProductionStage.sequence_number > current_stage.sequence_number
+            ).order_by(ProductionStage.sequence_number.asc()).first()
 
+            if not next_stage:
+                is_final_step = True
+
+        # --- PROCESS THE QUEUEING ---
+        if not is_final_step and next_stage:
+            # Queue it up for the next machine
             new_wip = WIPInventory(
                 factory_id=run_data.factory_id,
-                product_id=target_output_product_id,  # 🚨 MUTATED PRODUCT ID
+                product_id=target_output_product_id,
                 current_stage_id=next_stage.id,
                 batch_number=unified_batch_number,
                 vendor_lot_number=vendor_lot_to_carry_forward,
@@ -164,24 +167,23 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             )
             db.add(new_wip)
 
-            # WRITE TO FACTORY LEDGER
             ledger_produce = FactoryLedger(
                 factory_id=run_data.factory_id,
-                product_id=target_output_product_id,  # 🚨 MUTATED PRODUCT ID
+                product_id=target_output_product_id,
                 batch_number=unified_batch_number,
                 stage_id=next_stage.id,
                 transaction_type="WIP_PRODUCED",
-                reference_document=f"RUN-{new_run.id}",
+                reference_document=run_reference,
                 quantity_change=run_data.good_output_qty,
                 closing_balance=run_data.good_output_qty
             )
             db.add(ledger_produce)
 
         else:
-            # THE FINAL STAGE: Push to Finished Goods
+            # Push to Finished Goods
             factory_stock = db.query(FactoryInventory).filter(
                 FactoryInventory.factory_id == run_data.factory_id,
-                FactoryInventory.product_id == target_output_product_id,  # 🚨 MUTATED PRODUCT ID
+                FactoryInventory.product_id == target_output_product_id,
                 FactoryInventory.batch_number == unified_batch_number
             ).with_for_update().first()
 
@@ -193,15 +195,14 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             else:
                 factory_stock = FactoryInventory(
                     factory_id=run_data.factory_id,
-                    product_id=target_output_product_id,  # 🚨 MUTATED PRODUCT ID
+                    product_id=target_output_product_id,
                     batch_number=unified_batch_number,
                     current_stock_qty=run_data.good_output_qty
                 )
                 db.add(factory_stock)
 
-            # Log to DailyProductionLog
             daily_log = DailyProductionLog(
-                product_id=target_output_product_id,  # 🚨 MUTATED PRODUCT ID
+                product_id=target_output_product_id,
                 factory_id=run_data.factory_id,
                 batch_number=unified_batch_number,
                 quantity_produced=run_data.good_output_qty,
@@ -209,14 +210,13 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             )
             db.add(daily_log)
 
-            # FINISHED GOODS go to the main StockLedger
             ledger_fg = StockLedger(
                 entity_type="FACTORY",
                 entity_id=run_data.factory_id,
-                product_id=target_output_product_id,  # 🚨 MUTATED PRODUCT ID
+                product_id=target_output_product_id,
                 batch_number=unified_batch_number,
                 transaction_type="FG_PRODUCED",
-                reference_document=f"RUN-{new_run.id}",
+                reference_document=run_reference,
                 quantity_change=run_data.good_output_qty,
                 closing_balance=new_closing_balance
             )
@@ -226,7 +226,6 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
         # 7. CAPTURE THE SCRAP / WASTE
         # =================================================================
         if run_data.scrap_qty > 0:
-            # We track scrap using the ORIGINAL INPUT product ID (e.g. Steel)
             scrap_record = db.query(ScrapInventory).filter(
                 ScrapInventory.factory_id == run_data.factory_id,
                 ScrapInventory.product_id == run_data.product_id
@@ -252,12 +251,11 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
                 batch_number=unified_batch_number,
                 stage_id=current_stage.id,
                 transaction_type="SCRAP_PRODUCED",
-                reference_document=f"RUN-{new_run.id}",
+                reference_document=run_reference,
                 quantity_change=run_data.scrap_qty,
                 closing_balance=new_scrap_balance
             )
             db.add(ledger_scrap)
-        # =================================================================
 
         # 8. Commit the entire transaction safely
         db.commit()
@@ -269,7 +267,6 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
 
 def intake_raw_material(db: Session, data: RawMaterialIntake):
     # Find the starting stage based on the Product's Routing!
@@ -287,7 +284,7 @@ def intake_raw_material(db: Session, data: RawMaterialIntake):
     if not stage_1:
         raise HTTPException(status_code=500, detail="Master data missing. No production stages found.")
 
-    internal_batch_number = getattr(data, "custom_batch_number", None) or data.vendor_lot_number
+    internal_batch_number = data.custom_batch_number or data.vendor_lot_number
 
     new_rm_stock = WIPInventory(
         factory_id=data.factory_id,
@@ -346,7 +343,7 @@ def reverse_production_run(db: Session, run_id: int, operator_id: int):
         run = db.query(ProductionRun).filter(ProductionRun.id == run_id).with_for_update().first()
         if not run:
             raise HTTPException(status_code=404, detail="Production run not found.")
-        if run.is_reversed:
+        if getattr(run, 'is_reversed', False):
             raise HTTPException(status_code=400, detail="This run has already been reversed.")
 
         # ==========================================================
@@ -442,7 +439,9 @@ def reverse_production_run(db: Session, run_id: int, operator_id: int):
                 db.add(ledger_scrap_rev)
 
         # Mark Run as Reversed and Commit
-        run.is_reversed = True
+        if hasattr(run, 'is_reversed'):
+            run.is_reversed = True
+
         db.commit()
 
         return {"status": "success", "message": f"Run {run.id} successfully reversed."}
