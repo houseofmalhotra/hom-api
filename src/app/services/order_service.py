@@ -54,29 +54,17 @@ def process_order_lines(db: Session, order_id: int, lines: list):
 
 
 def get_base_unit_multiplier(db: Session, product_id: int) -> int:
-    """
-    Recursively unpacks a SKU to find the ultimate base quantity.
-    Example: Master Carton (10) -> Display Box (10) -> Tuck (Returns 100)
-    """
     packaging = db.query(ProductPackaging).filter(
         ProductPackaging.product_id == product_id
     ).first()
 
     if packaging and packaging.contains_qty:
-        # Find the product_id of the item INSIDE this packaging
-        # Example: we know it contains 10 "Display Boxes", so we must find the Display Box ID
-        inner_product = db.query(ProductMaster).filter(
-            ProductMaster.uom == packaging.contains_uom,
-            # You may need a secondary filter here to match the exact brand variant
-        ).first()
-
-        if inner_product:
-            # Recursively multiply down the chain
-            return packaging.contains_qty * get_base_unit_multiplier(db, inner_product.id)
+        # FIX: Directly follow the exact product ID, never guess by UOM!
+        if packaging.inner_product_id:
+            return packaging.contains_qty * get_base_unit_multiplier(db, packaging.inner_product_id)
         else:
             return packaging.contains_qty
 
-    # Base case: No packaging record exists, this is the base unit.
     return 1
 
 class OrderService:

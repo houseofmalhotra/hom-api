@@ -13,6 +13,7 @@ class ProductPackaging(Base):
     packaging_type = Column(String(50))
     contains_qty = Column(Integer)
     contains_uom = Column(String(50))
+    inner_product_id = Column(Integer, ForeignKey("product_master.id"), nullable=True)
 
 class BOMMaster(Base):
     __tablename__ = "bom_master"
