@@ -160,9 +160,6 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             )
             db.add(run_mapping)
 
-        # =================================================================
-        # 6. PRODUCT ROUTING & QUEUEING
-        # =================================================================
         current_route = db.query(ProductRouting).filter(
             ProductRouting.product_id == run_data.product_id,
             ProductRouting.stage_id == current_stage.id
@@ -395,6 +392,17 @@ def intake_raw_material(db: Session, data: RawMaterialIntake):
         raise HTTPException(status_code=500, detail=f"Failed to intake material: {str(e)}")
 
 
+from sqlalchemy.orm import Session
+from fastapi import HTTPException
+from src.app.models.production_core import (
+    ProductionRun, WIPInventory, FactoryLedger,
+    RunConsumption, ScrapReason, ProductionRunScrap
+)
+from src.app.models.inventory import (
+    FactoryInventory, DailyProductionLog, StockLedger, ScrapInventory
+)
+
+
 def reverse_production_run(db: Session, run_id: int, operator_id: int):
     try:
         # 1. Fetch and Lock the Run
@@ -459,7 +467,7 @@ def reverse_production_run(db: Session, run_id: int, operator_id: int):
             db.add(ledger_fg_rev)
 
         # ==========================================================
-        # 3. RESTORE CONSUMED INPUTS
+        # 3. RESTORE CONSUMED INPUTS (WIP)
         # ==========================================================
         consumptions = db.query(RunConsumption).filter(RunConsumption.run_id == run.id).all()
         for consumption in consumptions:
@@ -477,24 +485,36 @@ def reverse_production_run(db: Session, run_id: int, operator_id: int):
                 db.add(ledger_consume_rev)
 
         # ==========================================================
-        # 4. RESTORE SCRAP
+        # 4. RESTORE GRANULAR SCRAP (NEW LOGIC)
         # ==========================================================
-        if run.scrap_qty > 0:
-            scrap_record = db.query(ScrapInventory).filter(
-                ScrapInventory.factory_id == run.factory_id,
-                ScrapInventory.product_id == run.product_id
-            ).first()
+        # Fetch all granular scrap logged during this run
+        run_scraps = db.query(ProductionRunScrap).filter(ProductionRunScrap.run_id == run.id).all()
 
-            if scrap_record:
-                scrap_record.current_qty -= run.scrap_qty
+        for scrap_entry in run_scraps:
+            # We need to know if this scrap was hard-loss (sent to ScrapInventory)
+            scrap_reason = db.query(ScrapReason).filter(ScrapReason.id == scrap_entry.reason_id).first()
 
-                ledger_scrap_rev = FactoryLedger(
-                    factory_id=run.factory_id, product_id=run.product_id,
-                    batch_number=run.output_batch_number, stage_id=run.stage_id,
-                    transaction_type="SCRAP_PRODUCED_REVERSAL", reference_document=f"REV-RUN-{run.id}",
-                    quantity_change=-run.scrap_qty, closing_balance=scrap_record.current_qty
-                )
-                db.add(ledger_scrap_rev)
+            if scrap_reason and not scrap_reason.is_recoverable:
+                # We need to deduct this back OUT of ScrapInventory
+                scrap_record = db.query(ScrapInventory).filter(
+                    ScrapInventory.factory_id == run.factory_id,
+                    ScrapInventory.product_id == run.product_id
+                ).with_for_update().first()
+
+                if scrap_record:
+                    scrap_record.current_qty -= scrap_entry.qty
+
+                    ledger_scrap_rev = FactoryLedger(
+                        factory_id=run.factory_id,
+                        product_id=run.product_id,
+                        batch_number=run.output_batch_number,
+                        stage_id=run.stage_id,
+                        transaction_type="SCRAP_PRODUCED_REVERSAL",
+                        reference_document=f"REV-RUN-{run.id}",
+                        quantity_change=-scrap_entry.qty,
+                        closing_balance=scrap_record.current_qty
+                    )
+                    db.add(ledger_scrap_rev)
 
         # Mark Run as Reversed and Commit
         if hasattr(run, 'is_reversed'):

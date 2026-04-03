@@ -1,14 +1,16 @@
-# src/app/services/pricing_service.py
-
 from sqlalchemy.orm import Session
 from src.app.models.pricing import TradeScheme, PartnerPriceBook
 from decimal import Decimal
-from decimal import Decimal
-from decimal import Decimal
-from src.app.services.order_service import get_base_unit_multiplier
+from src.app.models.product import ProductMaster # FIX: Added missing ProductMaster import
+
+# 🚨 DELETED the top-level import of get_base_unit_multiplier to break the loop!
 
 def calculate_invoice_line_price(db: Session, partner_id: int, product_id: int, order_qty: int):
     product = db.query(ProductMaster).filter(ProductMaster.id == product_id).first()
+
+    # 🚨 FIX: Import the helper function INSIDE this function.
+    # This forces Python to wait until the function is actually called before trying to load it.
+    from src.app.services.order_service import get_base_unit_multiplier
 
     # 1. Get dynamic multiplier
     pkg_multiplier = get_base_unit_multiplier(db, product_id)
@@ -49,7 +51,6 @@ def calculate_invoice_line_price(db: Session, partner_id: int, product_id: int, 
         "total_base_units_calculated": total_base_volume,
         "discount_applied": applied_discount_percent
     }
-
 
 class PricingService:
     @staticmethod
