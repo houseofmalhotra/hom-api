@@ -3,6 +3,52 @@
 from sqlalchemy.orm import Session
 from src.app.models.pricing import TradeScheme, PartnerPriceBook
 from decimal import Decimal
+from decimal import Decimal
+from decimal import Decimal
+from src.app.services.order_service import get_base_unit_multiplier
+
+def calculate_invoice_line_price(db: Session, partner_id: int, product_id: int, order_qty: int):
+    product = db.query(ProductMaster).filter(ProductMaster.id == product_id).first()
+
+    # 1. Get dynamic multiplier
+    pkg_multiplier = get_base_unit_multiplier(db, product_id)
+
+    # 2. Find total volume for discount thresholds
+    total_base_volume = order_qty * pkg_multiplier
+
+    # 3. Determine the unit price
+    # If base_price is the price of 1 base unit (e.g., 1 Tuck = ₹10),
+    # then the SKU price is base_price * multiplier
+    sku_base_price = product.base_price * pkg_multiplier
+
+    final_sku_price = sku_base_price
+    applied_discount_percent = Decimal("0.00")
+
+    # 4. Evaluate Trade Schemes based on actual volume, NOT just the box quantity
+    active_schemes = db.query(TradeScheme).filter(
+        TradeScheme.partner_id == partner_id,
+        TradeScheme.is_active == True
+    ).all()
+
+    for scheme in active_schemes:
+        # Evaluate against the unpacked total_base_volume
+        if total_base_volume >= scheme.min_base_volume_threshold:
+            if scheme.discount_percent > applied_discount_percent:
+                applied_discount_percent = scheme.discount_percent
+
+    # 5. Apply the best scheme discount
+    if applied_discount_percent > 0:
+        discount_multiplier = (Decimal("100") - applied_discount_percent) / Decimal("100")
+        final_sku_price = final_sku_price * discount_multiplier
+
+    line_total = final_sku_price * order_qty
+
+    return {
+        "sku_price": final_sku_price,
+        "line_total": line_total,
+        "total_base_units_calculated": total_base_volume,
+        "discount_applied": applied_discount_percent
+    }
 
 
 class PricingService:

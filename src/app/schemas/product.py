@@ -17,9 +17,6 @@ class ProductBase(BaseModel):
     gst_percent: int = 18
     units_per_case: int = 1
 
-    # ==========================================
-    # 📦 STRICT PACKAGING LOGIC FIELDS
-    # ==========================================
     blades_per_tuck: Optional[int] = 5
     tucks_per_box: Optional[int] = 2000
     blades_per_box: Optional[int] = 10000
@@ -46,9 +43,6 @@ class ProductUpdate(BaseModel):
     gst_percent: Optional[int] = None
     units_per_case: Optional[int] = None
 
-    # ==========================================
-    # 📦 STRICT PACKAGING LOGIC FIELDS
-    # ==========================================
     blades_per_tuck: Optional[int] = None
     tucks_per_box: Optional[int] = None
     blades_per_box: Optional[int] = None
