@@ -13,6 +13,7 @@ class RMConsumption(BaseModel):
     qty_to_consume: Decimal
 
 class ScrapDetail(BaseModel):
+    product_id: int
     reason_id: int
     qty: Decimal
 
