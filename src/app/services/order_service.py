@@ -12,6 +12,61 @@ from src.app.models.partner import Retailer
 import datetime
 from datetime import date, datetime
 from decimal import Decimal
+from src.app.models.production_core import ProductPackaging
+from src.app.models.product import ProductMaster
+
+
+def process_order_lines(db: Session, order_id: int, lines: list):
+    total_base_units_in_order = 0
+
+    for line in lines:
+        product = db.query(ProductMaster).filter(ProductMaster.id == line.product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # 1. Get the dynamic multiplier
+        multiplier = get_base_unit_multiplier(db, product.id)
+
+        # 2. Calculate the exact number of base units for this line
+        total_line_base_units = line.quantity * multiplier
+        total_base_units_in_order += total_line_base_units
+
+        # 3. Handle Inventory Deduction
+        # NOTE: If your FactoryInventory stores Finished Goods as exact SKUs
+        # (e.g., it holds "5 Master Cartons"), deduct `line.quantity`.
+        # If your inventory only stores base units (e.g., "500 Tucks"), deduct `total_line_base_units`.
+
+        # Example for base unit deduction:
+        inventory_record = db.query(FactoryInventory).filter(
+            # ... inventory filters ...
+        ).with_for_update().first()
+
+        if inventory_record.current_stock_qty < total_line_base_units:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient stock for {product.name}. Needed {total_line_base_units} base units."
+            )
+
+        inventory_record.current_stock_qty -= total_line_base_units
+
+    return {"status": "success", "total_dispatched_base_units": total_base_units_in_order}
+
+
+def get_base_unit_multiplier(db: Session, product_id: int) -> int:
+    """
+    Looks up the packaging hierarchy to find out how many inner units
+    are inside the requested SKU.
+    """
+    packaging = db.query(ProductPackaging).filter(
+        ProductPackaging.product_id == product_id
+    ).first()
+
+    # If a packaging record exists, return its multiplier (e.g., 100 Tucks)
+    if packaging and packaging.contains_qty:
+        return packaging.contains_qty
+
+    # If no packaging record exists, this IS the base unit.
+    return 1
 
 
 class OrderService:

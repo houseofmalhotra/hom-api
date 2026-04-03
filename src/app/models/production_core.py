@@ -2,7 +2,45 @@ from sqlalchemy import Column, Integer, String, Numeric, ForeignKey, BigInteger,
 from sqlalchemy.orm import relationship
 from src.app.core.database import Base
 from sqlalchemy import Boolean
-from sqlalchemy import Boolean # Ensure this is imported
+from sqlalchemy import Boolean
+from sqlalchemy import Boolean
+
+
+class ProductPackaging(Base):
+    __tablename__ = "product_packaging"
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("product_master.id"), nullable=False)
+    packaging_type = Column(String(50))
+    contains_qty = Column(Integer)
+    contains_uom = Column(String(50))
+
+class BOMMaster(Base):
+    __tablename__ = "bom_master"
+    id = Column(Integer, primary_key=True, index=True)
+    output_product_id = Column(Integer, ForeignKey("product_master.id"), nullable=False)
+    stage_id = Column(Integer, ForeignKey("production_stage.id"), nullable=False)
+    base_qty = Column(Integer, default=1)
+
+class BOMItem(Base):
+    __tablename__ = "bom_item"
+    id = Column(Integer, primary_key=True, index=True)
+    bom_master_id = Column(Integer, ForeignKey("bom_master.id"), nullable=False)
+    input_product_id = Column(Integer, ForeignKey("product_master.id"), nullable=False)
+    expected_qty = Column(Numeric(12, 3), nullable=False)
+
+class ScrapReason(Base):
+    __tablename__ = "scrap_reason"
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True)
+    description = Column(String(255))
+    is_recoverable = Column(Boolean, default=False)
+
+class ProductionRunScrap(Base):
+    __tablename__ = "production_run_scrap"
+    id = Column(BigInteger, primary_key=True, index=True)
+    run_id = Column(BigInteger, ForeignKey("production_run.id"), nullable=False)
+    reason_id = Column(Integer, ForeignKey("scrap_reason.id"), nullable=False)
+    qty = Column(Numeric(12, 3), nullable=False)
 
 
 class ProductionStage(Base):
@@ -52,7 +90,10 @@ class ProductionRun(Base):
 
     input_qty = Column(Numeric(12, 3), nullable=False)
     good_output_qty = Column(Numeric(12, 3), nullable=False)
-    scrap_qty = Column(Numeric(12, 3), default=0)
+
+    total_material_cost = Column(Numeric(12, 2), default=0.00)
+    cost_per_unit_produced = Column(Numeric(12, 4), default=0.0000)
+
 
     created_at = Column(DateTime, server_default=func.now())
     scrap_qty = Column(Numeric(12, 3), default=0)
