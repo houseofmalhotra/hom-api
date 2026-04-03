@@ -4,8 +4,7 @@ from fastapi import HTTPException
 from datetime import date
 import uuid
 from decimal import Decimal
-
-# Models
+from src.app.schemas.production import RawMaterialIntake
 from src.app.models.production_core import (
     ProductionStage, WIPInventory, ProductionRun,
     RunConsumption, FactoryLedger, ProductRouting,
@@ -35,7 +34,7 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             raise HTTPException(status_code=404, detail="Production stage not found.")
 
         total_input_qty = Decimal("0.00")
-        total_material_cost_incurred = Decimal("0.00")  # NEW: Costing tracker
+        total_material_cost_incurred = Decimal("0.00")
 
         consumed_batches = set()
         consumed_vendor_lots = set()
@@ -65,7 +64,7 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
 
             total_input_qty += Decimal(str(consumed.qty_to_consume))
 
-            # NEW: Calculate Cost for this WIP
+            # Calculate Cost for this WIP
             wip_product = db.query(ProductMaster).filter(ProductMaster.id == wip_record.product_id).first()
             if wip_product and wip_product.standard_cost:
                 cost_of_wip = Decimal(str(consumed.qty_to_consume)) * Decimal(str(wip_product.standard_cost))
@@ -94,7 +93,7 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
                 if not rm_product:
                     raise HTTPException(status_code=404, detail=f"Raw Material Product ID {rm.product_id} not found.")
 
-                # NEW: Calculate Cost for this Raw Material
+                # Calculate Cost for this Raw Material
                 if rm_product.standard_cost:
                     cost_of_rm = Decimal(str(rm.qty_to_consume)) * Decimal(str(rm_product.standard_cost))
                     total_material_cost_incurred += cost_of_rm
@@ -130,6 +129,7 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
         good_qty = Decimal(str(run_data.good_output_qty))
         unit_cost_of_output = Decimal("0.00")
 
+        # FIX: Protect Costing from 100% Scrap runs (Division by Zero)
         if good_qty > 0:
             unit_cost_of_output = total_material_cost_incurred / good_qty
 
@@ -142,8 +142,8 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             product_id=run_data.product_id,
             input_qty=total_input_qty,
             good_output_qty=good_qty,
-            total_material_cost=total_material_cost_incurred,  # NEW
-            cost_per_unit_produced=unit_cost_of_output  # NEW
+            total_material_cost=total_material_cost_incurred,
+            cost_per_unit_produced=unit_cost_of_output
         )
         db.add(new_run)
         db.flush()
@@ -191,10 +191,11 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
             if not next_stage:
                 is_final_step = True
 
-        # Update the standard cost of the newly produced item in the Product Master
-        output_product = db.query(ProductMaster).filter(ProductMaster.id == target_output_product_id).first()
-        if output_product:
-            output_product.standard_cost = unit_cost_of_output
+        # FIX: ONLY update the Product Master cost if we actually produced good units
+        if good_qty > 0:
+            output_product = db.query(ProductMaster).filter(ProductMaster.id == target_output_product_id).first()
+            if output_product:
+                output_product.standard_cost = unit_cost_of_output
 
         if not is_final_step and next_stage:
             new_wip = WIPInventory(
@@ -279,9 +280,14 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
 
                 # Route hard-loss scrap to ScrapInventory
                 if not scrap_reason.is_recoverable:
+
+                    # FIX: Fetch the exact scrapped product to capture its correct UOM
+                    scrapped_product = db.query(ProductMaster).filter(ProductMaster.id == scrap.product_id).first()
+                    scrapped_uom = scrapped_product.uom if scrapped_product else current_stage.input_uom
+
                     scrap_record = db.query(ScrapInventory).filter(
                         ScrapInventory.factory_id == run_data.factory_id,
-                        ScrapInventory.product_id == run_data.product_id
+                        ScrapInventory.product_id == scrap.product_id  # FIX: Use specific scrap product id
                     ).with_for_update().first()
 
                     new_scrap_balance = scrap.qty
@@ -292,15 +298,15 @@ def execute_production_run(db: Session, run_data: ProductionRunCreate):
                     else:
                         scrap_record = ScrapInventory(
                             factory_id=run_data.factory_id,
-                            product_id=run_data.product_id,
+                            product_id=scrap.product_id,  # FIX: Use specific scrap product id
                             current_qty=scrap.qty,
-                            uom=current_stage.input_uom
+                            uom=scrapped_uom  # FIX: Accurate UOM applied
                         )
                         db.add(scrap_record)
 
                     ledger_scrap = FactoryLedger(
                         factory_id=run_data.factory_id,
-                        product_id=run_data.product_id,
+                        product_id=scrap.product_id,  # FIX: Use specific scrap product id
                         batch_number=unified_batch_number,
                         stage_id=current_stage.id,
                         transaction_type="SCRAP_PRODUCED",
