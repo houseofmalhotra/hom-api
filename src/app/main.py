@@ -12,7 +12,6 @@ from src.app.v1 import (
     product,
     invoice
 )
-from src.app.models import production_core
 from src.app.core.config import settings
 from src.app.v1 import partner
 from src.app.v1 import finance
@@ -92,9 +91,9 @@ app.include_router(production.router, prefix="/api/v1/production", tags=["13. Up
 @app.get("/", tags=["Health Check"])
 def root():
     return {
-        "status": "online",
-        "message": f"Welcome to {settings.PROJECT_NAME}",
-        "docs": "/docs"
+            "status": "online",
+            "message": f"Welcome to {settings.PROJECT_NAME}",
+            "docs": "/docs"
     }
 
 
